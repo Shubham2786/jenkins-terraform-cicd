@@ -6,40 +6,17 @@ pipeline {
         string(name: 'EC2_HOST', defaultValue: '', description: 'Public IP of AWS EC2 instance')
     }
 
-    environment {
-        APP_NAME   = 'devops-cicd-dashboard'
-        IMAGE_NAME = 'devops-cicd-dashboard'
-    }
-
     stages {
-        stage('Checkout') {
+        stage('Checkout & Install') {
             steps {
                 checkout scm
-                sh 'git log -1 --oneline'
-            }
-        }
-
-        stage('Environment Setup') {
-            steps {
-                sh 'node -v && npm -v && docker --version'
-            }
-        }
-
-        stage('Install Dependencies') {
-            steps {
                 sh 'npm ci'
             }
         }
 
-        stage('Code Quality and Validation') {
+        stage('Test & Lint') {
             steps {
-                sh 'npm run lint && npm run type-check'
-            }
-        }
-
-        stage('Automated Testing') {
-            steps {
-                sh 'npm test'
+                sh 'npm run lint && npm test'
             }
             post {
                 always {
@@ -48,7 +25,7 @@ pipeline {
             }
         }
 
-        stage('Production Build') {
+        stage('Build') {
             steps {
                 sh 'npm run build'
             }
@@ -56,51 +33,33 @@ pipeline {
 
         stage('Docker Build') {
             steps {
-                sh "docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} -t ${IMAGE_NAME}:latest ."
+                sh 'docker build -t devops-cicd-dashboard:latest .'
             }
         }
 
-        stage('Docker Validation') {
-            steps {
-                sh """
-                    docker run -d --name test-app -p 3001:3000 ${IMAGE_NAME}:latest
-                    sleep 5
-                    curl -f http://localhost:3001/api/health
-                    docker rm -f test-app
-                """
-            }
-        }
-
-        stage('Deployment') {
+        stage('Deploy') {
             when {
                 expression { params.DEPLOY_TO_EC2 && params.EC2_HOST }
             }
             steps {
                 withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')]) {
-                    sh "docker save ${IMAGE_NAME}:latest | ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${params.EC2_HOST} 'docker load && docker rm -f ${APP_NAME} || true && docker run -d --restart unless-stopped --name ${APP_NAME} -p 80:3000 ${IMAGE_NAME}:latest'"
+                    sh """
+                        docker save devops-cicd-dashboard:latest | ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${params.EC2_HOST} \
+                        'docker load && docker rm -f devops-cicd-dashboard || true && docker run -d --restart unless-stopped --name devops-cicd-dashboard -p 80:3000 devops-cicd-dashboard:latest'
+                        sleep 5
+                        curl -f http://${params.EC2_HOST}/api/health
+                    """
                 }
-            }
-        }
-
-        stage('Post-Deployment Verification') {
-            when {
-                expression { params.DEPLOY_TO_EC2 && params.EC2_HOST }
-            }
-            steps {
-                sh "sleep 5 && curl -f http://${params.EC2_HOST}/api/health"
             }
         }
     }
 
     post {
-        always {
-            sh 'docker rm -f test-app 2>/dev/null || true'
-        }
         success {
-            echo "Build #${BUILD_NUMBER} completed successfully!"
+            echo "Pipeline succeeded!"
         }
         failure {
-            echo "Build #${BUILD_NUMBER} failed."
+            echo "Pipeline failed."
         }
     }
 }
