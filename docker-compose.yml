@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: devops-cicd-dashboard:latest
+    container_name: devops-cicd-dashboard-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_APP_VERSION=v1.0.0
+      - NEXT_PUBLIC_ENV=production
+      - NEXT_PUBLIC_BUILD_ID=local-docker-compose
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
