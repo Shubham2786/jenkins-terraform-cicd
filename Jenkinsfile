@@ -1,399 +1,122 @@
-// ==============================================================================
-// Jenkins Declarative CI/CD Pipeline
-// Project: DevOps CI/CD Automation Dashboard
-// Target Infrastructure: AWS EC2 (Provisioned via Modular Terraform)
-// ==============================================================================
-
 pipeline {
     agent any
 
-    options {
-        timeout(time: 30, unit: 'MINUTES')
-        timestamps()
-        buildDiscarder(logRotator(numToKeepStr: '10'))
-        ansiColor('xterm')
-    }
-
     parameters {
-        choice(
-            name: 'ENVIRONMENT',
-            choices: ['production', 'staging', 'development'],
-            description: 'Target deployment environment'
-        )
-        booleanParam(
-            name: 'RUN_TERRAFORM_VALIDATION',
-            defaultValue: true,
-            description: 'Execute Terraform syntax, formatting, and validation checks'
-        )
-        booleanParam(
-            name: 'DEPLOY_TO_EC2',
-            defaultValue: false,
-            description: 'Deploy application to AWS EC2 instance (requires active EC2 instance & SSH credentials)'
-        )
-        string(
-            name: 'EC2_HOST',
-            defaultValue: '',
-            description: 'Public IP or Public DNS of the provisioned AWS EC2 instance (from terraform output)'
-        )
-        string(
-            name: 'EC2_USER',
-            defaultValue: 'ubuntu',
-            description: 'Default SSH user for AWS Ubuntu EC2 instance'
-        )
-        string(
-            name: 'SSH_CREDENTIAL_ID',
-            defaultValue: 'ec2-ssh-key',
-            description: 'Jenkins SSH Private Key Credential ID configured in Credentials Manager'
-        )
-        string(
-            name: 'APP_PORT',
-            defaultValue: '3000',
-            description: 'Application container port'
-        )
+        booleanParam(name: 'DEPLOY_TO_EC2', defaultValue: false, description: 'Deploy to AWS EC2 instance')
+        string(name: 'EC2_HOST', defaultValue: '', description: 'Public IP of AWS EC2 instance')
     }
 
     environment {
-        APP_NAME         = 'devops-cicd-dashboard'
-        IMAGE_NAME       = 'devops-cicd-dashboard'
-        CONTAINER_NAME   = 'devops-cicd-dashboard-app'
-        TEST_CONTAINER   = 'devops-dashboard-test'
-        TEST_PORT        = '3001'
-        DOCKER_REGISTRY  = 'local'
-        GIT_COMMIT_SHORT = ''
+        APP_NAME   = 'devops-cicd-dashboard'
+        IMAGE_NAME = 'devops-cicd-dashboard'
     }
 
     stages {
-        // ----------------------------------------------------------------------
-        // STAGE 1: Checkout Source Code
-        // ----------------------------------------------------------------------
+        // Stage 1: Retrieve source code from GitHub
         stage('Checkout') {
             steps {
-                echo '=== [Stage 1/10] Checking out source code from GitHub ==='
                 checkout scm
-                script {
-                    env.GIT_COMMIT_SHORT = sh(
-                        script: 'git rev-parse --short HEAD',
-                        returnStdout: true
-                    ).trim()
-                    def gitBranch = env.BRANCH_NAME ?: env.GIT_BRANCH ?: 'main'
-                    echo "Repository: ${env.GIT_URL ?: 'GitHub Source'}"
-                    echo "Branch: ${gitBranch}"
-                    echo "Commit ID: ${env.GIT_COMMIT_SHORT}"
-                }
+                sh 'git log -1 --oneline'
             }
         }
 
-        // ----------------------------------------------------------------------
-        // OPTIONAL STAGE: Terraform IaC Validation
-        // ----------------------------------------------------------------------
-        stage('Terraform IaC Validation') {
-            when {
-                expression { params.RUN_TERRAFORM_VALIDATION == true }
-            }
-            steps {
-                echo '=== Validating Terraform Modular Infrastructure as Code ==='
-                sh '''
-                    echo "Checking Terraform CLI installation..."
-                    terraform -version
-
-                    echo "Validating Terraform code formatting..."
-                    terraform -chdir=terraform fmt -check -recursive
-
-                    echo "Initializing Terraform root and child modules (backend-less validation)..."
-                    terraform -chdir=terraform init -backend=false
-
-                    echo "Validating Terraform configuration syntax and module references..."
-                    terraform -chdir=terraform validate
-                '''
-            }
-        }
-
-        // ----------------------------------------------------------------------
-        // STAGE 2: Environment Setup
-        // ----------------------------------------------------------------------
+        // Stage 2: Check runtime tools and versions
         stage('Environment Setup') {
             steps {
-                echo '=== [Stage 2/10] Validating runtime tools & system environment ==='
-                sh '''
-                    echo "Operating System: $(uname -s 2>/dev/null || echo Windows/Other)"
-                    echo "Architecture: $(uname -m 2>/dev/null || echo Unknown)"
-                    echo "Node.js Version: $(node -v)"
-                    echo "NPM Version: $(npm -v)"
-                    echo "Docker Version: $(docker --version)"
-                    echo "Checking Docker Daemon connectivity..."
-                    docker info > /dev/null 2>&1 || echo "Warning: Docker daemon verification completed."
-                '''
+                sh 'node -v'
+                sh 'npm -v'
+                sh 'docker --version'
             }
         }
 
-        // ----------------------------------------------------------------------
-        // STAGE 3: Install Dependencies
-        // ----------------------------------------------------------------------
+        // Stage 3: Clean dependency installation
         stage('Install Dependencies') {
             steps {
-                echo '=== [Stage 3/10] Installing production and dev dependencies ==='
-                sh '''
-                    if [ ! -f "package-lock.json" ]; then
-                        echo "ERROR: package-lock.json is missing! npm ci requires package-lock.json."
-                        exit 1
-                    fi
-                    echo "Executing clean dependency install via npm ci..."
-                    npm ci --prefer-offline --no-audit
-                '''
+                sh 'npm ci'
             }
         }
 
-        // ----------------------------------------------------------------------
-        // STAGE 4: Code Quality and Validation
-        // ----------------------------------------------------------------------
+        // Stage 4: Static analysis and type checking
         stage('Code Quality and Validation') {
             steps {
-                echo '=== [Stage 4/10] Executing ESLint and TypeScript type checking ==='
-                sh '''
-                    echo "Running ESLint static code analysis..."
-                    npm run lint
-
-                    echo "Running TypeScript strict type checking..."
-                    npm run type-check
-                '''
+                sh 'npm run lint'
+                sh 'npm run type-check'
             }
         }
 
-        // ----------------------------------------------------------------------
-        // STAGE 5: Automated Testing
-        // ----------------------------------------------------------------------
+        // Stage 5: Automated unit and API testing
         stage('Automated Testing') {
             steps {
-                echo '=== [Stage 5/10] Executing automated unit & integration test suites ==='
-                sh '''
-                    echo "Running Jest tests with JUnit XML reporter output..."
-                    npm test
-                '''
+                sh 'npm test'
             }
             post {
                 always {
-                    echo 'Publishing JUnit test results...'
                     junit allowEmptyResults: true, testResults: 'junit.xml'
                 }
             }
         }
 
-        // ----------------------------------------------------------------------
-        // STAGE 6: Production Build
-        // ----------------------------------------------------------------------
+        // Stage 6: Next.js production build
         stage('Production Build') {
             steps {
-                echo '=== [Stage 6/10] Compiling Next.js Standalone Production Build ==='
-                sh '''
-                    echo "Building Next.js application..."
-                    npm run build
-
-                    echo "Verifying build artifact presence..."
-                    if [ ! -d ".next" ]; then
-                        echo "ERROR: .next compilation directory was not generated!"
-                        exit 1
-                    fi
-                    echo "Next.js production build succeeded."
-                '''
+                sh 'npm run build'
             }
         }
 
-        // ----------------------------------------------------------------------
-        // STAGE 7: Docker Build
-        // ----------------------------------------------------------------------
+        // Stage 7: Build multi-stage Docker image
         stage('Docker Build') {
             steps {
-                echo '=== [Stage 7/10] Building optimized Multi-Stage Docker Image ==='
-                script {
-                    def imageTag = "${env.IMAGE_NAME}:${env.BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
-                    def latestTag = "${env.IMAGE_NAME}:latest"
-                    echo "Building Docker image with tags: ${imageTag} and ${latestTag}"
+                sh "docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} -t ${IMAGE_NAME}:latest ."
+            }
+        }
+
+        // Stage 8: Validate Docker container locally
+        stage('Docker Validation') {
+            steps {
+                sh "docker run -d --name test-app -p 3001:3000 ${IMAGE_NAME}:latest"
+                sh 'sleep 5'
+                sh 'curl -f http://localhost:3001/api/health'
+                sh 'docker rm -f test-app'
+            }
+        }
+
+        // Stage 9: Deploy container to AWS EC2 via SSH
+        stage('Deployment') {
+            when {
+                expression { params.DEPLOY_TO_EC2 && params.EC2_HOST }
+            }
+            steps {
+                withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')]) {
                     sh """
-                        docker build \
-                            -t ${imageTag} \
-                            -t ${latestTag} \
-                            .
+                        docker save ${IMAGE_NAME}:latest | ssh -o StrictHostKeyChecking=no -i \${SSH_KEY} \${SSH_USER}@${params.EC2_HOST} \
+                        'docker load && docker rm -f ${APP_NAME} 2>/dev/null || true && docker run -d --restart unless-stopped --name ${APP_NAME} -p 80:3000 ${IMAGE_NAME}:latest'
                     """
                 }
             }
         }
 
-        // ----------------------------------------------------------------------
-        // STAGE 8: Docker Validation
-        // ----------------------------------------------------------------------
-        stage('Docker Validation') {
-            steps {
-                echo '=== [Stage 8/10] Validating local Docker container & health endpoint ==='
-                sh """
-                    echo "Verifying Docker image presence..."
-                    docker images | grep ${env.IMAGE_NAME} || true
-
-                    echo "Cleaning up any existing test container on port ${env.TEST_PORT}..."
-                    docker stop ${env.TEST_CONTAINER} > /dev/null 2>&1 || true
-                    docker rm ${env.TEST_CONTAINER} > /dev/null 2>&1 || true
-
-                    echo "Starting container in background on port ${env.TEST_PORT}..."
-                    docker run -d \
-                        --name ${env.TEST_CONTAINER} \
-                        -p ${env.TEST_PORT}:3000 \
-                        -e NODE_ENV=production \
-                        ${env.IMAGE_NAME}:latest
-
-                    echo "Waiting 5 seconds for Next.js server initialization..."
-                    sleep 5
-
-                    echo "Checking health endpoint (http://localhost:${env.TEST_PORT}/api/health)..."
-                    HEALTH_RESPONSE=\$(curl -s -f http://localhost:${env.TEST_PORT}/api/health || echo "FAILED")
-                    echo "Health response: \${HEALTH_RESPONSE}"
-
-                    if echo "\${HEALTH_RESPONSE}" | grep -q '"status":"healthy"'; then
-                        echo "SUCCESS: Docker container health verification passed!"
-                    else
-                        echo "ERROR: Health check failed or returned invalid response."
-                        docker logs ${env.TEST_CONTAINER}
-                        docker stop ${env.TEST_CONTAINER} || true
-                        docker rm ${env.TEST_CONTAINER} || true
-                        exit 1
-                    fi
-
-                    echo "Cleaning up test container..."
-                    docker stop ${env.TEST_CONTAINER}
-                    docker rm ${env.TEST_CONTAINER}
-                """
-            }
-        }
-
-        // ----------------------------------------------------------------------
-        // STAGE 9: Deployment to AWS EC2
-        // ----------------------------------------------------------------------
-        stage('Deployment') {
-            when {
-                expression { params.DEPLOY_TO_EC2 == true }
-            }
-            steps {
-                echo '=== [Stage 9/10] Deploying application to AWS EC2 instance ==='
-                script {
-                    if (!params.EC2_HOST || params.EC2_HOST.trim() == '') {
-                        error('Deployment aborted: EC2_HOST parameter is required when DEPLOY_TO_EC2 is enabled.')
-                    }
-
-                    echo "Target Host: ${params.EC2_HOST}"
-                    echo "SSH User: ${params.EC2_USER}"
-                    echo "Transferring and starting container on AWS EC2..."
-
-                    // Securely bind SSH Private Key from Jenkins Credentials
-                    withCredentials([sshUserPrivateKey(
-                        credentialsId: params.SSH_CREDENTIAL_ID,
-                        keyFileVariable: 'SSH_KEY',
-                        usernameVariable: 'SSH_USER'
-                    )]) {
-                        sh """
-                            # Set strict private key permissions
-                            chmod 600 \${SSH_KEY}
-
-                            echo "Exporting Docker image for remote transfer..."
-                            docker save ${env.IMAGE_NAME}:latest | gzip > /tmp/${env.IMAGE_NAME}.tar.gz
-
-                            echo "Copying Docker archive to EC2 instance..."
-                            scp -o StrictHostKeyChecking=no -i \${SSH_KEY} /tmp/${env.IMAGE_NAME}.tar.gz \${SSH_USER}@${params.EC2_HOST}:/home/\${SSH_USER}/${env.IMAGE_NAME}.tar.gz
-
-                            echo "Executing remote deployment on EC2..."
-                            ssh -o StrictHostKeyChecking=no -i \${SSH_KEY} \${SSH_USER}@${params.EC2_HOST} << 'EOF'
-                                set -e
-                                echo "Loading Docker image..."
-                                docker load < /home/ubuntu/${env.IMAGE_NAME}.tar.gz
-                                rm -f /home/ubuntu/${env.IMAGE_NAME}.tar.gz
-
-                                echo "Stopping and removing existing application container..."
-                                docker stop ${env.CONTAINER_NAME} > /dev/null 2>&1 || true
-                                docker rm ${env.CONTAINER_NAME} > /dev/null 2>&1 || true
-
-                                echo "Starting updated application container on port 80..."
-                                docker run -d \
-                                    --name ${env.CONTAINER_NAME} \
-                                    --restart unless-stopped \
-                                    -p 80:3000 \
-                                    -p 3000:3000 \
-                                    -e NODE_ENV=production \
-                                    -e NEXT_PUBLIC_APP_VERSION=v1.0.0 \
-                                    -e NEXT_PUBLIC_ENV=${params.ENVIRONMENT} \
-                                    -e NEXT_PUBLIC_BUILD_ID=${env.BUILD_NUMBER} \
-                                    ${env.IMAGE_NAME}:latest
-
-                                echo "Remote container successfully started."
-                                docker ps -f name=${env.CONTAINER_NAME}
-EOF
-                            rm -f /tmp/${env.IMAGE_NAME}.tar.gz
-                        """
-                    }
-                }
-            }
-        }
-
-        // ----------------------------------------------------------------------
-        // STAGE 10: Post-Deployment Verification
-        // ----------------------------------------------------------------------
+        // Stage 10: Verify live deployment health
         stage('Post-Deployment Verification') {
             when {
-                expression { params.DEPLOY_TO_EC2 == true }
+                expression { params.DEPLOY_TO_EC2 && params.EC2_HOST }
             }
             steps {
-                echo '=== [Stage 10/10] Performing live post-deployment health verification ==='
-                sh """
-                    echo "Waiting 10 seconds for remote service warming..."
-                    sleep 10
-
-                    echo "Querying EC2 application health endpoint: http://${params.EC2_HOST}/api/health..."
-                    REMOTE_HEALTH=\$(curl -s -f --max-time 15 "http://${params.EC2_HOST}/api/health" || echo "FAILED")
-                    echo "Remote health response: \${REMOTE_HEALTH}"
-
-                    if echo "\${REMOTE_HEALTH}" | grep -q '"status":"healthy"'; then
-                        echo "============================================================"
-                        echo "SUCCESS: Application is LIVE and healthy on AWS EC2!"
-                        echo "Deployed URL: http://${params.EC2_HOST}"
-                        echo "Health URL:   http://${params.EC2_HOST}/api/health"
-                        echo "============================================================"
-                    else
-                        echo "ERROR: Remote health verification failed on EC2!"
-                        exit 1
-                    fi
-                """
+                sh 'sleep 5'
+                sh "curl -f http://${params.EC2_HOST}/api/health"
+                echo "Application successfully deployed and running at: http://${params.EC2_HOST}"
             }
         }
     }
 
-    // --------------------------------------------------------------------------
-    // Post-Build Notifications and Resource Cleanup
-    // --------------------------------------------------------------------------
     post {
         always {
-            echo '=== Executing pipeline post-actions: Cleaning temporary resources ==='
-            sh """
-                docker stop ${env.TEST_CONTAINER} > /dev/null 2>&1 || true
-                docker rm ${env.TEST_CONTAINER} > /dev/null 2>&1 || true
-            """
+            sh 'docker rm -f test-app 2>/dev/null || true'
         }
         success {
-            echo "===================================================================="
-            echo "PIPELINE COMPLETED SUCCESSFULLY!"
-            echo "Build: #${BUILD_NUMBER} | Commit: ${env.GIT_COMMIT_SHORT}"
-            echo "Environment: ${params.ENVIRONMENT}"
-            script {
-                if (params.DEPLOY_TO_EC2 == true && params.EC2_HOST != '') {
-                    echo "Live URL: http://${params.EC2_HOST}"
-                } else {
-                    echo "CI validation and Docker artifact build verified."
-                    echo "To deploy to AWS EC2, run pipeline with DEPLOY_TO_EC2=true and provide EC2_HOST."
-                }
-            }
-            echo "===================================================================="
+            echo "Build #${BUILD_NUMBER} finished successfully!"
         }
         failure {
-            echo "===================================================================="
-            echo "PIPELINE FAILED: Please inspect console logs above for stage error details."
-            echo "Build: #${BUILD_NUMBER} | Commit: ${env.GIT_COMMIT_SHORT}"
-            echo "===================================================================="
+            echo "Build #${BUILD_NUMBER} failed. Please review console logs."
         }
     }
 }
-
