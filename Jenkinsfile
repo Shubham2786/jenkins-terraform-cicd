@@ -1,12 +1,9 @@
+
 pipeline {
     agent any
 
-    parameters {
-        booleanParam(name: 'DEPLOY_TO_EC2', defaultValue: false, description: 'Deploy to AWS EC2 instance')
-        string(name: 'EC2_HOST', defaultValue: '', description: 'Public IP of AWS EC2 instance')
-    }
-
     stages {
+
         stage('Checkout & Install') {
             steps {
                 checkout scm
@@ -16,12 +13,8 @@ pipeline {
 
         stage('Test & Lint') {
             steps {
-                sh 'npm run lint && npm test'
-            }
-            post {
-                always {
-                    junit allowEmptyResults: true, testResults: 'junit.xml'
-                }
+                sh 'npm run lint'
+                sh 'npm test'
             }
         }
 
@@ -38,28 +31,29 @@ pipeline {
         }
 
         stage('Deploy') {
-            when {
-                expression { params.DEPLOY_TO_EC2 && params.EC2_HOST }
-            }
             steps {
-                withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')]) {
-                    sh """
-                        docker save devops-cicd-dashboard:latest | ssh -o StrictHostKeyChecking=no -i ${SSH_KEY} ${SSH_USER}@${params.EC2_HOST} \
-                        'docker load && docker rm -f devops-cicd-dashboard || true && docker run -d --restart unless-stopped --name devops-cicd-dashboard -p 80:3000 devops-cicd-dashboard:latest'
-                        sleep 5
-                        curl -f http://${params.EC2_HOST}/api/health
-                    """
-                }
+                sh '''
+                    docker rm -f devops-cicd-dashboard || true
+
+                    docker run -d \
+                        --restart unless-stopped \
+                        --name devops-cicd-dashboard \
+                        -p 3000:3000 \
+                        devops-cicd-dashboard:latest
+
+                    sleep 5
+                    curl -f http://localhost:3000/api/health
+                '''
             }
         }
     }
 
     post {
         success {
-            echo "Pipeline succeeded!"
+            echo 'Pipeline succeeded! Application deployed successfully.'
         }
         failure {
-            echo "Pipeline failed."
+            echo 'Pipeline failed.'
         }
     }
 }
