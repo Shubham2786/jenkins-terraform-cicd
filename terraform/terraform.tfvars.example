@@ -19,6 +19,7 @@ ssh_allowed_cidr   = "0.0.0.0/0"
 app_port           = 3000
 
 # Compute Configuration
+ami_id             = "ami-0aacd9f2ec3771e2f" # Ubuntu AMI ID
 instance_type      = "t2.micro"
 key_name           = "devops-ec2-key" # Existing AWS KeyPair name for SSH access
 root_volume_size   = 20

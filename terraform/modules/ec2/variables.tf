@@ -1,3 +1,9 @@
+variable "ami_id" {
+  description = "The AMI ID for the Ubuntu EC2 instance"
+  type        = string
+  default     = "ami-0aacd9f2ec3771e2f"
+}
+
 variable "instance_type" {
   description = "EC2 instance type (low-cost, suitable for container workloads)"
   type        = string

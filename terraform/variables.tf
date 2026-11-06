@@ -34,6 +34,12 @@ variable "availability_zone" {
   default     = ""
 }
 
+variable "ami_id" {
+  description = "AMI ID for the Ubuntu EC2 instance"
+  type        = string
+  default     = "ami-0aacd9f2ec3771e2f"
+}
+
 variable "instance_type" {
   description = "EC2 instance type for running Docker and the Next.js container"
   type        = string
