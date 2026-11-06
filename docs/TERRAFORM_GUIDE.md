@@ -39,14 +39,14 @@ Before running Terraform commands:
    aws configure
    # Enter AWS Access Key ID: ********************
    # Enter AWS Secret Access Key: ********************
-   # Default region name: us-east-1
+   # Default region name: eu-west-1
    # Default output format: json
    ```
 3. Alternatively, export environment variables:
    ```bash
    export AWS_ACCESS_KEY_ID="your-access-key-id"
    export AWS_SECRET_ACCESS_KEY="your-secret-access-key"
-   export AWS_DEFAULT_REGION="us-east-1"
+   export AWS_DEFAULT_REGION="eu-west-1"
    ```
 
 > **SECURITY NOTE**: Never hardcode AWS keys inside `.tf` files or commit credentials to Git.
@@ -89,10 +89,11 @@ cp terraform.tfvars.example terraform.tfvars
 ```
 Edit `terraform.tfvars`:
 ```hcl
-aws_region         = "us-east-1"
+aws_region         = "eu-west-1"
 project_name       = "devops-cicd-dashboard"
 environment        = "production"
 instance_type      = "t2.micro"
+ami_id             = "ami-0aacd9f2ec3771e2f"
 key_name           = "your-ec2-keypair-name" # Replace with your existing EC2 KeyPair
 ssh_allowed_cidr   = "0.0.0.0/0"             # Restrict to your workstation IP for security
 app_port           = 3000
@@ -173,7 +174,7 @@ Terraform will destroy resources in reverse topological dependency order:
    #   backend "s3" {
    #     bucket         = "devops-cicd-tf-state"
    #     key            = "production/terraform.tfstate"
-   #     region         = "us-east-1"
+   #     region         = "eu-west-1"
    #     dynamodb_table = "terraform-locks"
    #     encrypt        = true
    #   }

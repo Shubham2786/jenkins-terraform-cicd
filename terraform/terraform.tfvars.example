@@ -4,14 +4,14 @@
 # NOTE: Do NOT commit terraform.tfvars containing real credentials or secrets!
 # ==============================================================================
 
-aws_region         = "us-east-1"
+aws_region         = "eu-west-1"
 project_name       = "devops-cicd-dashboard"
 environment        = "production"
 
 # Network Configuration
 vpc_cidr           = "10.0.0.0/16"
 public_subnet_cidr = "10.0.1.0/24"
-availability_zone  = "us-east-1a"
+availability_zone  = "eu-west-1a"
 
 # Security Configuration
 # IMPORTANT: Replace 0.0.0.0/0 with your actual workstation public IP (e.g. 203.0.113.50/32)
