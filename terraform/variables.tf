@@ -37,7 +37,7 @@ variable "availability_zone" {
 variable "ami_id" {
   description = "AMI ID for the Ubuntu EC2 instance"
   type        = string
-  default     = "ami-0aacd9f2ec3771e2f"
+  default     = "ami-06468be052a4195a6"
 }
 
 variable "instance_type" {
